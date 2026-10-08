@@ -1,0 +1,51 @@
+# Meldet neue Inserate der Condo-Suche in der Telegram-Gruppe.
+# Auslöser: die tägliche Suche ändert meldung.txt (nur bei neuen Inseraten/Änderungen).
+# Der Bot-Schlüssel liegt als Geheimnis TELEGRAM_TOKEN im Repo (Settings → Secrets and variables → Actions).
+# Die Gruppen-Nummer wird beim ersten Lauf automatisch gesucht und in telegram-chat.txt abgelegt (ohne Schlüssel nutzlos).
+name: Telegram-Meldung
+on:
+  push:
+    branches: [main]
+    paths: [meldung.txt, .github/workflows/telegram.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: telegram
+jobs:
+  senden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Nachricht senden
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then echo "Noch kein TELEGRAM_TOKEN hinterlegt – nichts gesendet."; exit 0; fi
+          API="https://api.telegram.org/bot${TOKEN}"
+          CHAT="$(tr -d ' \n\r' < telegram-chat.txt 2>/dev/null || true)"
+          if [ -z "$CHAT" ]; then
+            CHAT="$(curl -s "$API/getUpdates?allowed_updates=%5B%22message%22,%22my_chat_member%22%5D" | jq -r '[.result[] | (.message.chat // .my_chat_member.chat) | select(.type=="group" or .type=="supergroup")] | last | .id // empty')"
+            if [ -z "$CHAT" ]; then echo "::error::Gruppe nicht gefunden. Bot in die Gruppe aufnehmen, dort eine Nachricht schreiben, dann neu starten."; exit 1; fi
+            echo "$CHAT" > telegram-chat.txt; NEUCHAT=1
+          fi
+          if [ "$EVENT" = "push" ] && git diff --name-only "$BEFORE" HEAD 2>/dev/null | grep -qx meldung.txt; then
+            TEXT="$(cat meldung.txt)"
+          else
+            TEXT="✅ Condo-Suche ist verbunden. Ab jetzt meldet sich hier jeden Morgen, wenn es neue Inserate gibt.
+          👉 https://97bf5xjqm4-cmyk.github.io/condo-suche/"
+          fi
+          send() { curl -s -X POST "$API/sendMessage" --data-urlencode "chat_id=$1" --data-urlencode "text=$TEXT" --data-urlencode "disable_web_page_preview=true"; }
+          R="$(send "$CHAT")"
+          NEW="$(echo "$R" | jq -r '.parameters.migrate_to_chat_id // empty')"
+          if [ -n "$NEW" ]; then CHAT="$NEW"; echo "$CHAT" > telegram-chat.txt; NEUCHAT=1; R="$(send "$CHAT")"; fi
+          echo "$R" | jq -e '.ok' > /dev/null || { echo "::error::Telegram hat abgelehnt: $(echo "$R" | jq -r '.description')"; exit 1; }
+          echo "Gesendet."
+          if [ "${NEUCHAT:-0}" = "1" ]; then
+            git config user.email noreply@anthropic.com; git config user.name Claude
+            git add telegram-chat.txt; git commit -m "Telegram-Gruppe hinterlegt"; git push
+          fi

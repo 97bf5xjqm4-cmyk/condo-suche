@@ -30,7 +30,7 @@ jobs:
           CHAT="$(tr -d ' \n\r' < telegram-chat.txt 2>/dev/null || true)"
           if [ -z "$CHAT" ]; then
             U="$(curl -s "$API/getUpdates")"
-            echo "::notice::Bot-Pruefung: ok=$(echo "$U" | jq -r .ok), Updates=$(echo "$U" | jq '.result|length'), Arten=$(echo "$U" | jq -c '[.result[]|keys[]|select(.!="update_id")]|unique'), Chat-Typen=$(echo "$U" | jq -c '[.result[]|(.message.chat // .my_chat_member.chat // .channel_post.chat // .edited_message.chat)|select(.)|.type]|unique'), Webhook=$(curl -s "$API/getWebhookInfo" | jq -r '.result.url|length')"
+            echo "::notice::Bot-Pruefung: Bot=@$(curl -s "$API/getMe" | jq -r .result.username), ok=$(echo "$U" | jq -r .ok), Updates=$(echo "$U" | jq '.result|length'), Arten=$(echo "$U" | jq -c '[.result[]|keys[]|select(.!="update_id")]|unique'), Chat-Typen=$(echo "$U" | jq -c '[.result[]|(.message.chat // .my_chat_member.chat // .channel_post.chat // .edited_message.chat)|select(.)|.type]|unique'), Webhook=$(curl -s "$API/getWebhookInfo" | jq -r '.result.url|length')"
             CHAT="$(echo "$U" | jq -r '[.result[] | (.message.chat // .my_chat_member.chat // .edited_message.chat) | select(.) | select(.type=="group" or .type=="supergroup")] | last | .id // empty')"
             if [ -z "$CHAT" ]; then echo "::error::Gruppe nicht gefunden. Bot in die Gruppe aufnehmen, dort eine Nachricht schreiben, dann neu starten."; exit 1; fi
             echo "$CHAT" > telegram-chat.txt; NEUCHAT=1
